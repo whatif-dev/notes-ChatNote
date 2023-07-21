@@ -87,8 +87,7 @@ class FAISSVS(FAISS):
             List of Documents with scores selected by maximal marginal relevance.
         """
         embedding = self.embedding_function(query)
-        docs = self.max_marginal_relevance_search_by_vector(embedding, k, fetch_k)
-        return docs
+        return self.max_marginal_relevance_search_by_vector(embedding, k, fetch_k)
     
     @classmethod
     def __from(

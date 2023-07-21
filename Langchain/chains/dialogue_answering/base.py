@@ -94,6 +94,6 @@ class DialogueWithSharedMemoryChains:
 
         llm_chain = LLMChain(llm=self.zero_shot_react_llm, prompt=prompt)
         agent = ZeroShotAgent(llm_chain=llm_chain, tools=tools, verbose=True)
-        agent_chain = AgentExecutor.from_agent_and_tools(agent=agent, tools=tools, verbose=True, memory=self.memory)
-
-        return agent_chain
+        return AgentExecutor.from_agent_and_tools(
+            agent=agent, tools=tools, verbose=True, memory=self.memory
+        )

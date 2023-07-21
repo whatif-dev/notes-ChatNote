@@ -3,7 +3,7 @@ import os
 import argparse
 import asyncio
 from argparse import Namespace
-sys.path.append(os.path.dirname(os.path.abspath(__file__)) + '/../../')
+sys.path.append(f'{os.path.dirname(os.path.abspath(__file__))}/../../')
 from chains.dialogue_answering import *
 from langchain.llms import OpenAI
 from models.base import (BaseAnswer,

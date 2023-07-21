@@ -111,12 +111,10 @@ async def upload_file(
 
     vs_path = get_vs_path(knowledge_base_id)
     vs_path, loaded_files = local_doc_qa.init_knowledge_vector_store([file_path], vs_path)
-    if len(loaded_files) > 0:
-        file_status = f"文件 {file.filename} 已上传至新的知识库，并已加载知识库，请开始提问。"
-        return BaseResponse(code=200, msg=file_status)
-    else:
-        file_status = "文件上传失败，请重新上传"
-        return BaseResponse(code=500, msg=file_status)
+    if len(loaded_files) <= 0:
+        return BaseResponse(code=500, msg="文件上传失败，请重新上传")
+    file_status = f"文件 {file.filename} 已上传至新的知识库，并已加载知识库，请开始提问。"
+    return BaseResponse(code=200, msg=file_status)
 
 
 async def upload_files(
@@ -201,20 +199,20 @@ async def delete_doc(
     if not os.path.exists(get_folder_path(knowledge_base_id)):
         return {"code": 1, "msg": f"Knowledge base {knowledge_base_id} not found"}
     doc_path = get_file_path(knowledge_base_id, doc_name)
-    if os.path.exists(doc_path):
-        os.remove(doc_path)
-        remain_docs = await list_docs(knowledge_base_id)
-        if len(remain_docs.data) == 0:
-            shutil.rmtree(get_folder_path(knowledge_base_id), ignore_errors=True)
-            return BaseResponse(code=200, msg=f"document {doc_name} delete success")
-        else:
-            status = local_doc_qa.delete_file_from_vector_store(doc_path, get_vs_path(knowledge_base_id))
-            if "success" in status:
-                return BaseResponse(code=200, msg=f"document {doc_name} delete success")
-            else:
-                return BaseResponse(code=1, msg=f"document {doc_name} delete fail")
-    else:
+    if not os.path.exists(doc_path):
         return BaseResponse(code=1, msg=f"document {doc_name} not found")
+    os.remove(doc_path)
+    remain_docs = await list_docs(knowledge_base_id)
+    if len(remain_docs.data) == 0:
+        shutil.rmtree(get_folder_path(knowledge_base_id), ignore_errors=True)
+        return BaseResponse(code=200, msg=f"document {doc_name} delete success")
+    else:
+        status = local_doc_qa.delete_file_from_vector_store(doc_path, get_vs_path(knowledge_base_id))
+        return (
+            BaseResponse(code=200, msg=f"document {doc_name} delete success")
+            if "success" in status
+            else BaseResponse(code=1, msg=f"document {doc_name} delete fail")
+        )
 
 
 async def update_doc(
@@ -232,34 +230,32 @@ async def update_doc(
     doc_path = get_file_path(knowledge_base_id, old_doc)
     if not os.path.exists(doc_path):
         return BaseResponse(code=1, msg=f"document {old_doc} not found")
+    os.remove(doc_path)
+    delete_status = local_doc_qa.delete_file_from_vector_store(doc_path, get_vs_path(knowledge_base_id))
+    if "fail" in delete_status:
+        return BaseResponse(code=1, msg=f"document {old_doc} delete failed")
+    saved_path = get_folder_path(knowledge_base_id)
+    if not os.path.exists(saved_path):
+        os.makedirs(saved_path)
+
+    file_content = await new_doc.read()  # 读取上传文件的内容
+
+    file_path = os.path.join(saved_path, new_doc.filename)
+    if os.path.exists(file_path) and os.path.getsize(file_path) == len(file_content):
+        file_status = f"document {new_doc.filename} already exists"
+        return BaseResponse(code=200, msg=file_status)
+
+    with open(file_path, "wb") as f:
+        f.write(file_content)
+
+    vs_path = get_vs_path(knowledge_base_id)
+    vs_path, loaded_files = local_doc_qa.init_knowledge_vector_store([file_path], vs_path)
+    if len(loaded_files) > 0:
+        file_status = f"document {old_doc} delete and document {new_doc.filename} upload success"
+        return BaseResponse(code=200, msg=file_status)
     else:
-        os.remove(doc_path)
-        delete_status = local_doc_qa.delete_file_from_vector_store(doc_path, get_vs_path(knowledge_base_id))
-        if "fail" in delete_status:
-            return BaseResponse(code=1, msg=f"document {old_doc} delete failed")
-        else:
-            saved_path = get_folder_path(knowledge_base_id)
-            if not os.path.exists(saved_path):
-                os.makedirs(saved_path)
-
-            file_content = await new_doc.read()  # 读取上传文件的内容
-
-            file_path = os.path.join(saved_path, new_doc.filename)
-            if os.path.exists(file_path) and os.path.getsize(file_path) == len(file_content):
-                file_status = f"document {new_doc.filename} already exists"
-                return BaseResponse(code=200, msg=file_status)
-
-            with open(file_path, "wb") as f:
-                f.write(file_content)
-
-            vs_path = get_vs_path(knowledge_base_id)
-            vs_path, loaded_files = local_doc_qa.init_knowledge_vector_store([file_path], vs_path)
-            if len(loaded_files) > 0:
-                file_status = f"document {old_doc} delete and document {new_doc.filename} upload success"
-                return BaseResponse(code=200, msg=file_status)
-            else:
-                file_status = f"document {old_doc} success but document {new_doc.filename} upload fail"
-                return BaseResponse(code=500, msg=file_status)
+        file_status = f"document {old_doc} success but document {new_doc.filename} upload fail"
+        return BaseResponse(code=500, msg=file_status)
 
 
 
@@ -286,23 +282,22 @@ async def local_doc_chat(
             history=history,
             source_documents=[],
         )
-    else:
-        for resp, history in local_doc_qa.get_knowledge_based_answer(
-                query=question, vs_path=vs_path, chat_history=history, streaming=True
-        ):
-            pass
-        source_documents = [
-            f"""出处 [{inum + 1}] {os.path.split(doc.metadata['source'])[-1]}：\n\n{doc.page_content}\n\n"""
-            f"""相关度：{doc.metadata['score']}\n\n"""
-            for inum, doc in enumerate(resp["source_documents"])
-        ]
+    for resp, history in local_doc_qa.get_knowledge_based_answer(
+            query=question, vs_path=vs_path, chat_history=history, streaming=True
+    ):
+        pass
+    source_documents = [
+        f"""出处 [{inum + 1}] {os.path.split(doc.metadata['source'])[-1]}：\n\n{doc.page_content}\n\n"""
+        f"""相关度：{doc.metadata['score']}\n\n"""
+        for inum, doc in enumerate(resp["source_documents"])
+    ]
 
-        return ChatMessage(
-            question=question,
-            response=resp["result"],
-            history=history,
-            source_documents=source_documents,
-        )
+    return ChatMessage(
+        question=question,
+        response=resp["result"],
+        history=history,
+        source_documents=source_documents,
+    )
 
 
 async def bing_search_chat(
@@ -352,8 +347,6 @@ async def chat(
                                                           streaming=True):
         resp = answer_result.llm_output["answer"]
         history = answer_result.history
-        pass
-
     return ChatMessage(
         question=question,
         response=resp,
